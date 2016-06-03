@@ -58,9 +58,6 @@ const (
 )
 
 // Delete marks this job as complete by deleting it form the database.
-//
-// You must also later call Done() to return this job's database connection to
-// the pool.
 func (j *Job) Delete() error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -77,8 +74,8 @@ func (j *Job) Delete() error {
 	return j.done(stateDeleted)
 }
 
-// Done releases the Postgres advisory lock on the job and returns the database
-// connection to the pool.
+// done commits the transaction which releases the Postgres advisory lock on
+// the job.
 func (j *Job) done(finalState state) error {
 	if j.state != stateRunning {
 		// already marked as done
@@ -94,9 +91,6 @@ func (j *Job) done(finalState state) error {
 // Error marks the job as failed and schedules it to be reworked. An error
 // message or backtrace can be provided as msg, which will be saved on the job.
 // It will also increase the error count.
-//
-// You must also later call Done() to return this job's database connection to
-// the pool.
 func (j *Job) Error(msg string) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -123,7 +117,7 @@ type Client struct {
 	// TODO: add a way to specify default queueing options
 }
 
-// NewClient creates a new Client that uses the pgx pool.
+// NewClient creates a new Client that uses db.
 func NewClient(db *sql.DB) *Client {
 	return &Client{db: db}
 }
@@ -201,8 +195,8 @@ var ErrAgain = errors.New("maximum number of LockJob attempts reached")
 // same connection throughout the process of getting a job, working it,
 // deleting it, and removing the lock.
 //
-// After the Job has been worked, you must call either Done() or Error() on it
-// in order to return the database connection to the pool and remove the lock.
+// After the Job has been worked, you must call either Delete() or Error() on
+// it in order to indicate success or failure respectively.
 func (c *Client) LockJob(queue string) (*Job, error) {
 	tx, err := c.db.Begin()
 	if err != nil {

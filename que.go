@@ -198,60 +198,69 @@ var ErrAgain = errors.New("maximum number of LockJob attempts reached")
 // After the Job has been worked, you must call either Delete() or Error() on
 // it in order to indicate success or failure respectively.
 func (c *Client) LockJob(queue string) (*Job, error) {
-	tx, err := c.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-
-	j := Job{db: c.db, tx: tx}
-
 	for i := 0; i < maxLockJobAttempts; i++ {
-		err = tx.QueryRow(sqlLockJob, queue).Scan(
-			&j.Queue,
-			&j.Priority,
-			&j.RunAt,
-			&j.ID,
-			&j.Type,
-			&j.Args,
-			&j.ErrorCount,
-		)
+		tx, err := c.db.Begin()
 		if err != nil {
-			tx.Rollback()
-			if err == sql.ErrNoRows {
-				return nil, nil
+			return nil, err
+		}
+		j, err := c.attemptLockJob(queue, tx)
+		if j == nil || err != nil {
+			// ensure we rollback the transaction if we are not
+			// returning a job
+			err2 := tx.Rollback()
+			if err2 != nil {
+				return nil, err2
+			}
+		}
+		if err != nil {
+			if err == ErrAgain {
+				continue
 			}
 			return nil, err
 		}
-
-		// Deal with race condition. Explanation from the Ruby Que gem:
-		//
-		// Edge case: It's possible for the lock_job query to have
-		// grabbed a job that's already been worked, if it took its MVCC
-		// snapshot while the job was processing, but didn't attempt the
-		// advisory lock until it was finished. Since we have the lock, a
-		// previous worker would have deleted it by now, so we just
-		// double check that it still exists before working it.
-		//
-		// Note that there is currently no spec for this behavior, since
-		// I'm not sure how to reliably commit a transaction that deletes
-		// the job in a separate thread between lock_job and check_job.
-		var ok bool
-		err = tx.QueryRow(sqlCheckJob, j.Queue, j.Priority, j.RunAt, j.ID).Scan(&ok)
-		if err == nil {
-			return &j, nil
-		} else if err == sql.ErrNoRows {
-			// Encountered job race condition; start over from the beginning.
-			// We're still holding the advisory lock, though, so we need to
-			// release it before resuming.  Otherwise we leak the lock,
-			// eventually causing the server to run out of locks.
-			//
-			// Also swallow the possible error, exactly like in Done.
-			_ = tx.QueryRow(sqlUnlockJob, j.ID).Scan(&ok)
-			continue
-		} else {
-			tx.Rollback()
-			return nil, err
-		}
+		return j, nil
 	}
 	return nil, ErrAgain
+}
+
+func (c *Client) attemptLockJob(queue string, tx *sql.Tx) (*Job, error) {
+	j := Job{db: c.db, tx: tx}
+	err := tx.QueryRow(sqlLockJob, queue).Scan(
+		&j.Queue,
+		&j.Priority,
+		&j.RunAt,
+		&j.ID,
+		&j.Type,
+		&j.Args,
+		&j.ErrorCount,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Deal with race condition. Explanation from the Ruby Que gem:
+	//
+	// Edge case: It's possible for the lock_job query to have
+	// grabbed a job that's already been worked, if it took its MVCC
+	// snapshot while the job was processing, but didn't attempt the
+	// advisory lock until it was finished. Since we have the lock, a
+	// previous worker would have deleted it by now, so we just
+	// double check that it still exists before working it.
+	//
+	// Note that there is currently no spec for this behavior, since
+	// I'm not sure how to reliably commit a transaction that deletes
+	// the job in a separate thread between lock_job and check_job.
+	var ok bool
+	err = tx.QueryRow(sqlCheckJob, j.Queue, j.Priority, j.RunAt, j.ID).Scan(&ok)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Encountered job race condition; start over from the beginning.
+			return nil, ErrAgain
+		}
+		return nil, err
+	}
+	return &j, nil
 }

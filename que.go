@@ -69,7 +69,7 @@ func (j *Job) Delete() error {
 		return fmt.Errorf("job has already finished. state=%d", j.state)
 	}
 
-	_, err := j.tx.Exec(stmts["que_destroy_job"], j.Queue, j.Priority, j.RunAt, j.ID)
+	_, err := j.tx.Exec(sqlDeleteJob, j.Queue, j.Priority, j.RunAt, j.ID)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (j *Job) Error(msg string) error {
 		return fmt.Errorf("job has already finished. state=%d", j.state)
 	}
 
-	_, err := j.tx.Exec(stmts["que_set_error"], errorCount, delay, msg, j.Queue, j.Priority, j.RunAt, j.ID)
+	_, err := j.tx.Exec(sqlSetError, errorCount, delay, msg, j.Queue, j.Priority, j.RunAt, j.ID)
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func execEnqueue(j *Job, q queryable) error {
 		args = "[]"
 	}
 
-	_, err := q.Exec(stmts["que_insert_job"], queue, priority, runAt, j.Type, args)
+	_, err := q.Exec(sqlInsertJob, queue, priority, runAt, j.Type, args)
 	return err
 }
 
@@ -212,7 +212,7 @@ func (c *Client) LockJob(queue string) (*Job, error) {
 	j := Job{db: c.db, tx: tx}
 
 	for i := 0; i < maxLockJobAttempts; i++ {
-		err = tx.QueryRow(stmts["que_lock_job"], queue).Scan(
+		err = tx.QueryRow(sqlLockJob, queue).Scan(
 			&j.Queue,
 			&j.Priority,
 			&j.RunAt,
@@ -242,7 +242,7 @@ func (c *Client) LockJob(queue string) (*Job, error) {
 		// I'm not sure how to reliably commit a transaction that deletes
 		// the job in a separate thread between lock_job and check_job.
 		var ok bool
-		err = tx.QueryRow(stmts["que_check_job"], j.Queue, j.Priority, j.RunAt, j.ID).Scan(&ok)
+		err = tx.QueryRow(sqlCheckJob, j.Queue, j.Priority, j.RunAt, j.ID).Scan(&ok)
 		if err == nil {
 			return &j, nil
 		} else if err == sql.ErrNoRows {
@@ -252,7 +252,7 @@ func (c *Client) LockJob(queue string) (*Job, error) {
 			// eventually causing the server to run out of locks.
 			//
 			// Also swallow the possible error, exactly like in Done.
-			_ = tx.QueryRow(stmts["que_unlock_job"], j.ID).Scan(&ok)
+			_ = tx.QueryRow(sqlUnlockJob, j.ID).Scan(&ok)
 			continue
 		} else {
 			tx.Rollback()
@@ -260,13 +260,4 @@ func (c *Client) LockJob(queue string) (*Job, error) {
 		}
 	}
 	return nil, ErrAgain
-}
-
-var stmts = map[string]string{
-	"que_check_job":   sqlCheckJob,
-	"que_destroy_job": sqlDeleteJob,
-	"que_insert_job":  sqlInsertJob,
-	"que_lock_job":    sqlLockJob,
-	"que_set_error":   sqlSetError,
-	"que_unlock_job":  sqlUnlockJob,
 }

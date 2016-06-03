@@ -27,7 +27,7 @@ package que
 const (
 	sqlLockJob = `
 WITH RECURSIVE jobs AS (
-  SELECT (j).*, pg_try_advisory_lock((j).job_id) AS locked
+  SELECT (j).*, pg_try_advisory_xact_lock((j).job_id) AS locked
   FROM (
     SELECT j
     FROM que_jobs AS j
@@ -37,7 +37,7 @@ WITH RECURSIVE jobs AS (
     LIMIT 1
   ) AS t1
   UNION ALL (
-    SELECT (j).*, pg_try_advisory_lock((j).job_id) AS locked
+    SELECT (j).*, pg_try_advisory_xact_lock((j).job_id) AS locked
     FROM (
       SELECT (
         SELECT j

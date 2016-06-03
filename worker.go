@@ -94,7 +94,6 @@ func (w *Worker) WorkOne() (didWork bool) {
 	if j == nil {
 		return // no job was available
 	}
-	defer j.Done()
 	defer recoverPanic(j)
 
 	didWork = true

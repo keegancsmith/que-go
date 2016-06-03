@@ -1,38 +1,29 @@
 package que
 
 import (
+	"database/sql"
 	"testing"
 
-	"github.com/jackc/pgx"
+	_ "github.com/lib/pq"
 )
 
-var testConnConfig = pgx.ConnConfig{
-	Host:     "localhost",
-	Database: "que-go-test",
-}
-
 func openTestClientMaxConns(t testing.TB, maxConnections int) *Client {
-	connPoolConfig := pgx.ConnPoolConfig{
-		ConnConfig: testConnConfig,
-		MaxConnections: maxConnections,
-		AfterConnect:   PrepareStatements,
-	}
-	pool, err := pgx.NewConnPool(connPoolConfig)
+	db, err := sql.Open("postgres", "host=localhost dbname=que-go-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewClient(pool)
+	return NewClient(db)
 }
 
 func openTestClient(t testing.TB) *Client {
 	return openTestClientMaxConns(t, 5)
 }
 
-func truncateAndClose(pool *pgx.ConnPool) {
-	if _, err := pool.Exec("TRUNCATE TABLE que_jobs"); err != nil {
+func truncateAndClose(db *sql.DB) {
+	if _, err := db.Exec("TRUNCATE TABLE que_jobs"); err != nil {
 		panic(err)
 	}
-	pool.Close()
+	db.Close()
 }
 
 func findOneJob(q queryable) (*Job, error) {
@@ -51,7 +42,7 @@ func findOneJob(q queryable) (*Job, error) {
 		&j.LastError,
 		&j.Queue,
 	)
-	if err == pgx.ErrNoRows {
+	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {

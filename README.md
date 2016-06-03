@@ -2,6 +2,11 @@
 
 [![GoDoc](https://godoc.org/github.com/bgentry/que-go?status.svg)][godoc]
 
+NOTE: This is a hacked up version of the excellent `github.com/bgentry/que-go`
+package. I want to use the usual `github.com/lib/pq`, since I am in a large app
+which already uses it (and introducing pgx will require also introducing
+monitoring/ etc). Not proven to work yet!!
+
 Que-go is a fully interoperable Golang port of [Chris Hanks][chanks]' [Ruby Que
 queuing library][ruby-que] for PostgreSQL. Que uses PostgreSQL's advisory locks
 for speed and reliability.
